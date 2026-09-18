@@ -32,6 +32,8 @@ All six expose identically-shaped MCP tools, all tenant-scoped, all queryable in
 
 ## Architecture
 
+See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the repository-backed current-state inventory and the complete AWS → GCP → Azure delivery roadmap.
+
 ```
                     ┌─────────────────────────┐
                     │  Browser (end user)     │

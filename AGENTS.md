@@ -11,23 +11,27 @@ Multi-tenant, multi-cloud (AWS + Azure + GCP) cloud operations platform: MCP + R
 
 ## 1. Phase Plan
 
+> The execution order is now provider-sequential: **AWS → GCP → Azure**. The detailed current-state inventory, subphases, dependencies, and acceptance gates are in [`docs/ROADMAP.md`](docs/ROADMAP.md). Existing `F1.x`/`F2.x`/`F3.x` IDs remain domain-backlog references.
+
 | Phase | Scope | Status |
 |---|---|---|
-| 1 | Foundation: auth, cost + inventory, AWS + Azure + GCP, RAG chat | Pending |
-| 2 | Security posture + FinOps (rightsizing / reservations) across all 3 clouds | Pending |
-| 3 | SCA (SBOM/CVE/EPSS/KEV) + Compliance (CIS, SOC2) + Alerts (Slack) | Pending |
+| R0 | Foundation repair: contracts, identity, builds, auth, schema, Vault, Kind | Pending |
+| R1 | AWS Foundation: onboarding, cost, inventory, RAG chat | Pending |
+| R2 | AWS Security + FinOps | Pending |
+| R3 | AWS SCA + Compliance + Alerts; AWS beta | Pending |
+| R4 | GCP full-domain parity | Pending |
+| R5 | Azure full-domain parity | Pending |
+| R6 | Unified multi-cloud GA and production hardening | Pending |
 
-### Phase 1 — Foundation (exit criteria)
+### Legacy domain-phase exit criteria
 
-Log in as tenant A, see AWS+Azure+GCP spend on the Costs page; see normalized inventory on the Inventory page; ask the chat "what did we spend on EC2 last month?" and get a grounded answer with citations.
+> These describe the final domain outcomes retained by the `F*` backlog. Delivery now occurs through R0–R6 in `docs/ROADMAP.md`, reaching each outcome for AWS first, then GCP, then Azure.
 
-### Phase 2 — Security + FinOps (exit criteria)
+**Foundation:** Log in as tenant A, see provider spend on the Costs page; see normalized inventory on the Inventory page; ask the chat a provider-specific cost question and get a grounded answer with citations.
 
-Security page shows aggregated CSPM findings from all 3 clouds, drill-down works, chat answers "what public S3 buckets do I have?" and "how do I fix this?" with KB citations. FinOps page shows rightsizing + reservation coverage.
+**Security + FinOps:** Security shows aggregated CSPM findings, drill-down works, chat answers exposure and remediation questions with KB citations, and FinOps shows rightsizing plus commitment coverage.
 
-### Phase 3 — SCA + Compliance + Alerts (exit criteria)
-
-Upload a CycloneDX SBOM, see affected CVEs (with KEV flag highlighted). Run a CIS-AWS scan, see pass/fail per control, generate evidence bundle. Anomaly detection fires a Slack alert when a tenant's daily EC2 spend jumps 3σ.
+**SCA + Compliance + Alerts:** Upload a CycloneDX SBOM and see affected CVEs with KEV highlighted; run a provider CIS assessment and generate evidence; fire a Slack alert for a deterministic cost anomaly.
 
 ---
 
@@ -46,6 +50,7 @@ Upload a CycloneDX SBOM, see affected CVEs (with KEV flag highlighted). Run a CI
 | D9 | K8s namespace | **`cloud-cost-compass` for now** (F1.7 may rename to `cloud-compass`) | Rename immediately (disruptive; deferred) |
 | D10 | Repo name | **Unchanged** — user will handle the rename | Rename to `cloud-compass` (we don't touch git remotes) |
 | D11 | UI framework | **Refine + shadcn/ui** (Vite + TypeScript) | Streamlit (weak tables/streaming/RBAC), Gradio (notebook feel), Next.js (heaviest), Appsmith/Tooljet (low-code, less flexible) |
+| D12 | Provider delivery order | **AWS first, then GCP, then Azure**; finish each provider release gate before production work on the next | All-cloud horizontal delivery (delays usable vertical releases) |
 
 > All "Alternatives considered" entries are recorded here so future maintainers (and the agent) can revisit them. If a tradeoff is overturned, update this table AND the matching tracker item.
 
@@ -78,25 +83,25 @@ Upload a CycloneDX SBOM, see affected CVEs (with KEV flag highlighted). Run a CI
 | F1.1 | Rename product `Cloud Cost Compass` → `Cloud Compass` in `README.md` | `[x]` | agent | done in this commit |
 | F1.2 | Rewrite `AGENTS.md` with phased plan + tracker (this file) | `[x]` | agent | done in this commit |
 | F1.3 | Phase 1 SQL: `001_tenants_and_creds.sql`, `003_cost.sql`, `002_inventory.sql` | `[ ]` | agent | supersedes existing `001_initial_schema.sql`, `002_seed_tenants.sql` |
-| F1.4 | Provider abstraction: `mcp-server/providers/{base,aws,azure,gcp,factory}.py` | `[ ]` | agent | `CloudProvider` protocol; AWS port from current `server.py` |
-| F1.5 | MCP tools `cost.*`, `inventory.*` for all 3 clouds | `[ ]` | agent | namespaced; tenant + role injected from JWT |
+| F1.4 | Provider abstraction: `mcp-server/providers/{base,aws,gcp,azure,factory}.py` | `[ ]` | agent | `CloudProvider` protocol; AWS port from current `server.py`; implement per D12 |
+| F1.5 | MCP tools `cost.*`, `inventory.*` with provider parity | `[ ]` | agent | namespaced; tenant + role injected from JWT; deliver AWS → GCP → Azure per D12 |
 | F1.6a | Refine + shadcn/ui scaffold: Vite/TS/Tailwind, routing, providers, layout | `[~]` | agent | replaces Streamlit; multi-stage Docker build, nginx serve |
 | F1.6b | OIDC + role-based route guards: Keycloak code flow, `viewer`/`operator`/`admin` | `[ ]` | agent | refine-auth provider; mirrors D2 (defense in depth) |
 | F1.6c | Pages: Overview, Costs, Inventory, Chat, Settings (Phase 1 surface) | `[ ]` | agent | TanStack Table for inventory, Vercel AI SDK `useChat` for chat |
 | F1.7 | Decide on K8s namespace rename `cloud-cost-compass` → `cloud-compass` | `[ ]` | human | D9 deferred; revisit after first multi-tenant deploy |
 | F1.8 | Vault paths updated to `secret/tenants/{tid}/providers/{aws,azure,gcp}.json` | `[ ]` | agent | keep old `aws.json` path aliased during cutover |
-| F1.9 | K8s manifests: namespace, vault, keycloak, postgres, mcp, streamlit, gateway, migrations, rag, qdrant | `[ ]` | agent | keep current mechanism; refresh image refs |
+| F1.9 | K8s manifests: namespace, Vault, Keycloak, Postgres, MCP, app, gateway, migrations, RAG, Qdrant | `[ ]` | agent | reconcile raw manifests and Helm; refresh image refs |
 | F1.10 | `scripts/{setup-kind,deploy-eks}.sh` adapted for new namespace + images | `[ ]` | agent | |
 | F1.11 | LangGraph agent skeleton: `classify_intent → plan → retrieve_context → execute_tools → synthesize → reflect` | `[ ]` | agent | tool registry mirrors MCP surface |
-| F1.12 | End-to-end smoke: log in tenant A, see AWS+Azure+GCP spend + inventory | `[ ]` | agent | exit criterion for Phase 1 |
+| F1.12 | End-to-end smoke: log in tenant A, see provider spend + inventory | `[ ]` | agent | deliver AWS gate first, then extend the same suite to GCP and Azure |
 
 ### Phase 2 — Security + FinOps
 
 | ID | Task | Status | Owner | Notes |
 |---|---|---|---|---|
 | F2.1 | Migrations `004_security.sql` (findings, iam_principals), `007_recommendations.sql` (partial — finops only) | `[ ]` | agent | |
-| F2.2 | MCP tools `finops.*` for AWS+Azure+GCP | `[ ]` | agent | CloudWatch / Monitor / Cloud Monitoring metrics |
-| F2.3 | MCP tools `security.*` for AWS+Azure+GCP | `[ ]` | agent | Security Hub / Defender for Cloud / SCC |
+| F2.2 | MCP tools `finops.*` with provider parity | `[ ]` | agent | deliver AWS → GCP → Azure per D12 |
+| F2.3 | MCP tools `security.*` with provider parity | `[ ]` | agent | Security Hub → SCC → Defender for Cloud per D12 |
 | F2.4 | RAG collection `kb-{tid}-security` + router `/security_kb` | `[ ]` | agent | seed with CIS Benchmarks + provider hardening |
 | F2.5 | Refine pages: Security, FinOps | `[ ]` | agent | severity donut, top control IDs, drill-down (TanStack Table + Recharts) |
 | F2.6 | Daily `inventory-snapshot` CronJob (K8s `09-cronjobs.yaml` shape) | `[ ]` | agent | populates `resource_inventory` |
@@ -137,9 +142,10 @@ Upload a CycloneDX SBOM, see affected CVEs (with KEV flag highlighted). Run a CI
 |---|---|---|---|---|
 | FX.1 | OpenTelemetry SDK in every service (OTLP exporter to future collector) | `[ ]` | agent | structured JSON logs with `tenant_id` field |
 | FX.2 | Envelope encryption for `tenant_credentials.encrypted_blob` (DEK per row, KEK = `ENCRYPTION_KEY`) | `[ ]` | agent | upgrade from current single-key blob |
-| FX.3 | `pytest` per service with mocked `CloudProvider` (no CI per D10 spirit, but local-run) | `[ ]` | agent | |
+| FX.3 | Automated quality gates and `pytest` per service with mocked `CloudProvider` | `[ ]` | agent | same commands locally and in CI; no live cloud credentials required |
 | FX.4 | `docs/ARCHITECTURE.md`, `docs/SECURITY.md`, `docs/RUNBOOKS.md` | `[ ]` | agent | replaces `docs/ARCHITECTURE_PLAN.md` |
 | FX.5 | `bootstrap-tenant.sh`, `seed-vault.sh` scripts | `[ ]` | agent | seed minimal tenant + creds for dev |
+| FX.6 | Current-state inventory + provider-sequential completion roadmap | `[x]` | agent | `docs/ROADMAP.md`; execution order AWS → GCP → Azure |
 
 ---
 
@@ -156,6 +162,9 @@ Upload a CycloneDX SBOM, see affected CVEs (with KEV flag highlighted). Run a CI
 | 2026-06-09 12:00 | D11 (new) | `Streamlit → Refine + shadcn/ui` | Locked UI: Refine (React, Vite, TS) + shadcn/ui (Radix + Tailwind). Reason: better tables (TanStack Table), streaming chat (Vercel AI SDK), OIDC/RBAC out of the box. Alternatives considered: Streamlit, Gradio, Next.js, Appsmith, Tooljet. |
 | 2026-06-09 12:00 | F1.6 | `[ ] → split` | Split into F1.6a (scaffold), F1.6b (OIDC + guards), F1.6c (Phase 1 pages) |
 | 2026-06-09 12:00 | F1.6a | `[ ] → [~]` | Scaffolding Refine + Vite + TS + Tailwind + shadcn/ui in `app/` |
+| 2026-09-18 22:56 | FX.6 | `[ ] → [~]` | Started repository-backed current-state inventory and completion roadmap |
+| 2026-09-18 22:56 | D12 (new) | `all-cloud horizontal → AWS → GCP → Azure` | Locked provider-sequential delivery order |
+| 2026-09-18 22:56 | FX.6 | `[~] → [x]` | Added complete R0–R6 roadmap with subphases, dependencies, and exit gates |
 
 > When you (the agent) start a new task, **append a row** here with the timestamp, the `F<n>.<m>` item, the new status, and a one-line summary. When the task completes, append a second row flipping the status to `[x]`.
 
@@ -163,7 +172,7 @@ Upload a CycloneDX SBOM, see affected CVEs (with KEV flag highlighted). Run a CI
 
 ## 6. Multi-Tenancy Rules (DO NOT VIOLATE)
 
-- `tenant_id` MUST come from a verified OIDC token (`sub` claim) — never from request body, query string, or headers in app code.
+- `tenant_id` MUST come from verified OIDC identity context — never from request body, query string, or unverified headers. R0.1 must decide a dedicated tenant claim versus server-side membership lookup; `sub` remains the user identifier.
 - Every Postgres query in `app/`, `mcp-server/`, `rag-service/`, `alerts-service/` MUST include `WHERE tenant_id = %s`.
 - Every Qdrant call MUST target a tenant-prefixed collection (`rag-{tid}`, `kb-{tid}-*`, `cve-{tid}`).
 - Every Vault read for cloud creds MUST be scoped to `secret/tenants/{tenant_id}/providers/...`.
@@ -241,6 +250,6 @@ Browser → Envoy Gateway → Refine + shadcn/ui (8080) + LangGraph agent (SSE)
 - Chunking: 512-char fixed, 50-char overlap.
 - Collections: `rag-{tid}`, `kb-{tid}-security`, `kb-{tid}-compliance`, `cve-{tid}`.
 
-## 12. No test/lint/build scripts
+## 12. Quality baseline
 
-Pure IaC + Docker. No npm scripts, test suites, or lint commands in the current scope (FX.3 adds local-run `pytest` later).
+The UI defines npm build and TypeScript-check scripts, but dependencies are not locked and no automated test suite exists yet. Python services have no tests, lint, or type-check configuration. FX.3 and roadmap R0.2 establish reproducible local and CI quality gates.
