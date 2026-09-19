@@ -1,5 +1,11 @@
 # Cloud Compass
 
+<p align="center">
+  <a href="docs/diagrams/aws-beta-infrastructure.html">
+    <img src="docs/diagrams/aws-beta-infrastructure.png" alt="Cloud Compass target AWS personal-beta infrastructure" width="1200">
+  </a>
+</p>
+
 Multi-tenant, multi-cloud (AWS, Azure, GCP) **cloud operations platform** that unifies six domains — **Cost, FinOps, Inventory, Security, SCA, and Compliance** — behind a single agent + dashboard.
 
 > Previously known as *Cloud Cost Compass*. Rebranded and re-scoped to a true cloud operations compass, not just cost.
@@ -22,9 +28,9 @@ All six expose identically-shaped MCP tools, all tenant-scoped, all queryable in
 ## Features
 
 - **Multi-Cloud Parity**: AWS (boto3), Azure (azure-mgmt / azure-identity), GCP (google-cloud-*) via a single `CloudProvider` protocol.
-- **Natural Language Operations**: LangGraph agent + Minimax M2.7 selects and chains tools across all six domains.
+- **Natural Language Operations**: LangGraph agent + in-region Amazon Bedrock inference selects and chains tools across all six domains.
 - **MCP Tool Server**: One FastMCP server (port 8000), namespaced tools (`cost.*`, `finops.*`, `inventory.*`, `security.*`, `sca.*`, `compliance.*`, `alerts.*`).
-- **RAG-Powered Insights**: Qdrant vector store + Minimax `embo` (384 dim) embeddings; separate collections for chat docs, security KB, compliance KB, and CVE corpus.
+- **RAG-Powered Insights**: Qdrant vector store + an in-region Bedrock embedding model; separate collections for chat docs, security KB, compliance KB, and CVE corpus.
 - **Multi-Tenant Dashboard**: **Refine + shadcn/ui (React + Vite + TypeScript)**, OIDC SSO (Keycloak), per-tenant data isolation enforced in DB layer, Qdrant collections, Vault paths, and MCP tool wrappers.
 - **Streaming Chat**: Vercel AI SDK hits the LangGraph agent over SSE; tool calls rendered inline with citations.
 - **Role-Based Access**: `viewer` / `operator` / `admin` enforced in both UI route guards and MCP tool wrappers (defense in depth).
@@ -32,7 +38,7 @@ All six expose identically-shaped MCP tools, all tenant-scoped, all queryable in
 
 ## Architecture
 
-See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the repository-backed current-state inventory and the complete AWS → GCP → Azure delivery roadmap.
+The immediate release is a three-month, **AWS-only personal beta**: a read-only cockpit for daily cost, real-time infrastructure changes, Security Hub/direct checks, and grounded chat. It runs on Kind locally and EKS in a separate platform AWS account; the first monitored account is personal AWS. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for its exact boundary and the post-beta AWS → GCP → Azure roadmap.
 
 ```
                     ┌─────────────────────────┐
@@ -107,7 +113,7 @@ cloud-cost-compass/                  (repo name preserved; product is Cloud Comp
 ├── rag-service/                      # FastAPI
 │   ├── server.py
 │   ├── routers/                      # retrieve, ingest, history, compliance_kb, cve
-│   ├── embed/                        # Minimax client
+│   ├── embed/                        # Bedrock embedding client (target; current Minimax client is transitional)
 │   ├── qdrant/                       # Qdrant client
 │   └── Dockerfile
 ├── alerts-service/                   # Phase 3
@@ -160,11 +166,20 @@ kind load docker-image qdrant/qdrant:v1.7.4 --name cloud-cost-compass
 kind load docker-image hashicorp/vault:1.16 --name cloud-cost-compass
 ```
 
+## Beta onboarding and environments
+
+- **Kind** is the required local and CI target; **EKS** in a dedicated Cloud Compass AWS account is the hosted beta target.
+- A Keycloak-authenticated `cloud-compass` CLI will generate pinned OpenTofu onboarding configuration and validate a connection. Applying infrastructure is always an explicit user action.
+- The CLI sends the newly-created, least-privilege AWS read-only connector secret to tenant Vault once. It does not retrieve stored AWS credentials.
+- Live connections are complemented by clearly labelled **Simulated AWS** connections backed by Floci and deterministic fixtures.
+- CloudTrail management events and Security Hub findings flow through EventBridge → SQS → an EKS worker. Daily snapshots reconcile event delivery; cost is daily and never described as real-time.
+- Bedrock inference is in-region in `ap-south-1`, uses zero retention, disables invocation-content logging, and never uses tenant content for model training. The application still minimizes/redacts prompts and enforces its own retention/deletion policy.
+
 ## Vault Secret Paths
 
 | Path | Rendered As | Used By |
 |---|---|---|
-| `secret/minimax/api_key` | `MINIMAX_API_KEY` env var | All services |
+| AWS IRSA for Bedrock | Short-lived workload identity | Agent/RAG services; no external model API key |
 | `secret/app/encryption_key` | `ENCRYPTION_KEY` env var | MCP server |
 | `secret/tenants/{tenant_id}/providers/aws.json` | `/etc/secrets/tenants/{tenant_id}/providers/aws.json` | MCP server |
 | `secret/tenants/{tenant_id}/providers/azure.json` | `/etc/secrets/tenants/{tenant_id}/providers/azure.json` | MCP server |
@@ -209,7 +224,7 @@ The Refine app uses an OIDC code-flow client (configured via `VITE_KEYCLOAK_*` e
 | `kb-{tenant_id}-compliance` | Policy text, control mappings |
 | `cve-{tenant_id}` | Synced CVE corpus (NVD + EPSS + KEV), filtered to tenant PURLs |
 
-All collections: 384-dim, DOT similarity (Minimax `embo`).
+Collections use a versioned dimension and embedding model selected from in-region Bedrock models under the zero-retention policy; migrations prevent mixing vectors from incompatible models.
 
 ## UI Stack (locked)
 
@@ -225,8 +240,8 @@ All collections: 384-dim, DOT similarity (Minimax `embo`).
 
 ## Multi-Tenancy
 
-- AuthN: OIDC via Keycloak self-hosted; `tenant_id` from OIDC `sub` claim.
-- AuthZ: realm roles (`viewer`, `operator`, `admin`) mirrored in `user_roles` table; checked in UI and MCP tool wrappers.
+- AuthN: OIDC via self-hosted Keycloak; `sub` identifies the user, then server-side memberships resolve the active tenant.
+- AuthZ: membership roles (`viewer`, `operator`, `admin`) are enforced in UI and MCP tool wrappers.
 - Per-tenant cloud credentials stored in Vault under `secret/tenants/{tenant_id}/providers/`.
 - Qdrant collection per tenant; all DB queries and SDK calls filtered by `tenant_id`.
 - Encrypted at rest in Postgres via `ENCRYPTION_KEY` (envelope encryption in a follow-up).

@@ -3,7 +3,7 @@
 Multi-tenant, multi-cloud (AWS + Azure + GCP) cloud operations platform: MCP + RAG + Agent + Refine (shadcn/ui).
 
 **Product:** Cloud Compass (formerly Cloud Cost Compass).
-**Stack:** Refine + shadcn/ui + Vite + TypeScript (UI), LangGraph/LangChain (agent), Minimax M2.7 (LLM), FastMCP (tools), Qdrant (RAG vectors), PostgreSQL (state), native cloud SDKs (boto3, azure-mgmt, google-cloud-*).
+**Stack:** Refine + shadcn/ui + Vite + TypeScript (UI), LangGraph/LangChain + Amazon Bedrock (agent/RAG inference), FastMCP (tools), Qdrant (RAG vectors), PostgreSQL (state), native cloud SDKs (boto3, azure-mgmt, google-cloud-*).
 
 > Repo directory and K8s namespace still use the historical `cloud-cost-compass` name; the **product** name is **Cloud Compass** (K8s namespace: `cloud-cost-compass` for now — see Phase 1 tracker item **F1.7**). Image registry prefix is also `cloud-cost-compass/*`.
 
@@ -13,12 +13,14 @@ Multi-tenant, multi-cloud (AWS + Azure + GCP) cloud operations platform: MCP + R
 
 > The execution order is now provider-sequential: **AWS → GCP → Azure**. The detailed current-state inventory, subphases, dependencies, and acceptance gates are in [`docs/ROADMAP.md`](docs/ROADMAP.md). Existing `F1.x`/`F2.x`/`F3.x` IDs remain domain-backlog references.
 
+> **Active execution tracker:** The three-month AWS personal beta is decomposed into numbered, verifiable tasks in [`docs/BETA_EXECUTION_PLAN.md`](docs/BETA_EXECUTION_PLAN.md). Every agent MUST select work from that tracker, respect its dependencies, and update its status plus evidence when the task is verified. It replaces vague “in progress” reporting for beta implementation; R0–R6 remains the post-beta roadmap.
+
 | Phase | Scope | Status |
 |---|---|---|
 | R0 | Foundation repair: contracts, identity, builds, auth, schema, Vault, Kind | Pending |
 | R1 | AWS Foundation: onboarding, cost, inventory, RAG chat | Pending |
-| R2 | AWS Security + FinOps | Pending |
-| R3 | AWS SCA + Compliance + Alerts; AWS beta | Pending |
+| R2 | AWS Security + weekly cockpit; personal AWS beta | Pending |
+| R3 | Post-beta AWS SCA + Compliance + Alerts | Pending |
 | R4 | GCP full-domain parity | Pending |
 | R5 | Azure full-domain parity | Pending |
 | R6 | Unified multi-cloud GA and production hardening | Pending |
@@ -44,13 +46,34 @@ Multi-tenant, multi-cloud (AWS + Azure + GCP) cloud operations platform: MCP + R
 | D3 | Cloud credentials (v1) | **Static keys/secrets in Vault** (AWS access key, Azure SP secret, GCP SA JSON key) | Cross-account role assumption, Workload Identity Federation (deferred to v2) |
 | D4 | MCP write-actions (v1) | **Read-only tools**, remediation as runbook text | Direct remediation writes (safety risk; deferred) |
 | D5 | Compliance frameworks (v1) | **CIS AWS / Azure / GCP + SOC2 CC subset** | HIPAA, PCI, ISO 27001 (out of scope for v1) |
-| D6 | Cost snapshotting | **Daily persisted** `cost_history` (cron) **+ real-time on demand** from MCP | Real-time only (no trends) or persisted only (slow UX) |
+| D6 | Cost snapshotting | **Daily persisted** `cost_history` (cron) plus on-demand Cost Explorer queries with explicit AWS freshness caveats | Real-time only (misleading for billing) or persisted only (slow UX) |
 | D7 | Multi-account per tenant | **Many AWS accounts, one Azure tenant, many GCP projects** | Strictly 1:1:1 (too restrictive) |
 | D8 | Per-cloud region default | **Single default per provider per tenant, overrideable per request** | Per-resource region only (cluttered UX) |
 | D9 | K8s namespace | **`cloud-cost-compass` for now** (F1.7 may rename to `cloud-compass`) | Rename immediately (disruptive; deferred) |
 | D10 | Repo name | **Unchanged** — user will handle the rename | Rename to `cloud-compass` (we don't touch git remotes) |
 | D11 | UI framework | **Refine + shadcn/ui** (Vite + TypeScript) | Streamlit (weak tables/streaming/RBAC), Gradio (notebook feel), Next.js (heaviest), Appsmith/Tooljet (low-code, less flexible) |
 | D12 | Provider delivery order | **AWS first, then GCP, then Azure**; finish each provider release gate before production work on the next | All-cloud horizontal delivery (delays usable vertical releases) |
+| D13 | Three-month beta | **AWS-only personal-alpha cockpit**: live/simulated connections, daily cost, inventory/change detection, Security Hub findings, weekly digest, and grounded read-only chat | Completing all seven domains or any GCP/Azure work before users have an AWS cockpit |
+| D14 | Beta infrastructure | **Kind locally and EKS in a dedicated Cloud Compass AWS account** | Docker Compose, a shared monitored/platform account, or delaying Kubernetes |
+| D15 | Tenant identity | **Keycloak `sub` identifies a user; Postgres memberships resolve tenant and role**; one active tenant per request in v1 | Treating `sub` as tenant ID or trusting a tenant claim/header/tool argument |
+| D16 | Live change ingestion | **CloudTrail management events and Security Hub findings → EventBridge → SQS → EKS worker**, with IRSA, DLQ, idempotency, and daily reconciliation | Polling only or a public webhook ingestion endpoint |
+| D17 | Cost freshness | **Daily persisted Cost Explorer history**; do not describe billing data as real-time | Event-driven or real-time cost claims |
+| D18 | Initial AWS inventory | **EC2, EBS, S3, RDS, Lambda, ELB/ALB/NLB, ECR, VPC/subnets/security groups/route tables, CloudTrail configuration, and Route 53 hosted zones/records** | Broad ECS/EKS discovery or packet/log analytics in the beta |
+| D19 | Security source | **Security Hub when enabled**, plus direct read-only public-S3, permissive-security-group, and CloudTrail-health checks | Reimplementing AWS's entire posture engine |
+| D20 | Test data | **Live AWS and clearly labelled Simulated AWS connections**; Floci and deterministic fixtures test adapters, events, anomalies, and failures | Using only a real account or treating simulated data as live |
+| D21 | Connection onboarding | **Tenant-authenticated `cloud-compass` CLI generates pinned OpenTofu configuration, validates, and supports user-run apply** | Browser secret entry or CloudFormation-first onboarding |
+| D22 | GitHub integration | **GitHub App installation IDs plus short-lived installation tokens**; no tenant PATs | Storing long-lived per-tenant GitHub tokens |
+| D23 | Connector secrets | **CLI submits only the newly-created least-privilege AWS read-only connector secret to tenant Vault; it never retrieves stored AWS secrets** | Backend/CLI handling broad administrator credentials |
+| D24 | Beta closure | **3 active tenants; <30-minute onboarding each; ≥2 weekly returning users for 3 consecutive weeks; ≥1 actionable signal per user** | Declaring success from a personal demo or feature completion alone |
+| D25 | Beta platform region | **`ap-south-1` only** for the EKS platform account; monitored AWS resources may remain global or in other regions | Multi-region platform deployment before beta evidence exists |
+| D26 | Beta data lifecycle | **13 months** normalized cost/inventory/finding history; **30 days** raw event payloads; tenant-admin deletion request completed within **30 days**; all beta data in `ap-south-1` | Indefinite retention, cross-region storage, or an undefined offboarding process |
+| D27 | AI data boundary | **Amazon Bedrock only in `ap-south-1`**, in-region inference, account/project zero-retention mode, no cross-region inference, and no invocation-content logging; tenant content is never used by Cloud Compass for model training | Minimax/external inference, default retention, cross-region profiles, or model training/fine-tuning on tenant content |
+| D28 | Bedrock model selection | **Configurable, allowlisted in-region Bedrock chat/embedding candidates**; select the lowest-cost pair that passes zero-retention compatibility and grounded-answer evaluation | Hard-coding a model before policy/quality checks or enabling an external-provider fallback |
+| D29 | Beta access domain | **`cc.darshanraul.me`** is the provisional HTTPS beta base domain; use app/auth subdomains with Route 53, ACM, and matching Keycloak redirect URIs before EKS exposure | Raw EKS endpoints, IP addresses, port forwards, or HTTP-only beta access |
+| D30 | Beta user access | **Invite-only**: the operator provisions Keycloak users and tenant memberships; public self-signup is disabled | Public registration before abuse prevention, support, and account-recovery workflows exist |
+| D31 | Beta chat corpus | **No tenant document uploads**. Chat is grounded only in tenant-scoped live/simulated AWS tool results and curated Cloud Compass runbook text | Uploading arbitrary tenant documents before malware scanning, prompt-injection controls, retention, and deletion workflows are mature |
+| D32 | Beta persistence topology | **Self-manage all platform workloads and stateful services inside EKS** (Postgres, Qdrant, Vault, Keycloak, workers). Bedrock is the only managed platform AI service; tenant EventBridge/SQS are ingestion integrations and excluded from this boundary | RDS or other managed platform data services |
+| D33 | Beta backup/recovery | **Velero with a dedicated encrypted S3 bucket in `ap-south-1`** for Kubernetes objects and EBS snapshots, plus native Postgres/Qdrant/Vault backups and scheduled restore drills. S3 is backup-only, not a runtime platform data service | Same-cluster-only backups, Velero-only database recovery, or RDS |
 
 > All "Alternatives considered" entries are recorded here so future maintainers (and the agent) can revisit them. If a tradeoff is overturned, update this table AND the matching tracker item.
 
@@ -94,6 +117,17 @@ Multi-tenant, multi-cloud (AWS + Azure + GCP) cloud operations platform: MCP + R
 | F1.10 | `scripts/{setup-kind,deploy-eks}.sh` adapted for new namespace + images | `[ ]` | agent | |
 | F1.11 | LangGraph agent skeleton: `classify_intent → plan → retrieve_context → execute_tools → synthesize → reflect` | `[ ]` | agent | tool registry mirrors MCP surface |
 | F1.12 | End-to-end smoke: log in tenant A, see provider spend + inventory | `[ ]` | agent | deliver AWS gate first, then extend the same suite to GCP and Azure |
+| F1.13 | Lock personal AWS beta scope, identity, event ingestion, and OpenTofu onboarding decisions | `[x]` | agent | D13–D23; three-month AWS beta constraints recorded |
+| F1.14 | Create numbered AWS beta execution tracker and agent verification protocol | `[x]` | agent | `docs/BETA_EXECUTION_PLAN.md`; tracker governs three-month beta work |
+| F1.15 | Lock AWS beta closure scorecard | `[x]` | agent | D24; owner confirmed the measurable month-three thresholds |
+| F1.16 | Lock beta data lifecycle and Bedrock data boundary | `[x]` | agent | D26–D27; region/retention/no-training controls added to execution plan |
+| F1.17 | Lock configurable Bedrock model-selection policy | `[x]` | agent | D28; retain evaluated Bedrock candidates without an external inference fallback |
+| F1.18 | Record provisional beta HTTPS domain and access gate | `[x]` | agent | D29; DNS/ACM/Keycloak routing becomes an EKS prerequisite |
+| F1.19 | Lock invite-only beta access | `[x]` | agent | D30; public self-signup is outside the beta |
+| F1.20 | Lock beta chat-corpus boundary | `[x]` | agent | D31; tenant document ingestion is deferred |
+| F1.21 | Lock self-managed EKS persistence topology | `[x]` | agent | D32; RDS is excluded from the beta |
+| F1.22 | Lock Velero/S3 backup and native state recovery | `[x]` | agent | D33; backup storage is the documented recovery-only exception |
+| F1.23 | Create target AWS beta infrastructure diagram and README preview | `[x]` | agent | Archify HTML + README PNG cover client, EKS, agent, MCP, RAG, Bedrock, events, state, and recovery |
 
 ### Phase 2 — Security + FinOps
 
@@ -153,6 +187,8 @@ Multi-tenant, multi-cloud (AWS + Azure + GCP) cloud operations platform: MCP + R
 
 > This is the running log of agent sessions working on Cloud Compass. Each entry is added by the agent when it starts and updates an item.
 > **Format:** `YYYY-MM-DD HH:MM | item | status change | summary`.
+>
+> **Mandatory beta tracking protocol:** For every task in `docs/BETA_EXECUTION_PLAN.md`, the responsible agent MUST (1) change that task from `[ ]` to `[~]` and append a start row here before implementation, (2) leave the task `[!]` with a concrete dependency/retry condition if blocked, and (3) change it to `[x]` only after recording its test, command, deployment check, or source evidence in the task's `Evidence / update` cell and appending a completion row here. Agents MUST NOT mark a parent epic complete while an in-scope child remains unfinished, or mark a task complete from a scaffold, undocumented manual check, or unverified claim.
 
 | When | Item | Δ | Summary |
 |---|---|---|---|
@@ -165,6 +201,31 @@ Multi-tenant, multi-cloud (AWS + Azure + GCP) cloud operations platform: MCP + R
 | 2026-09-18 22:56 | FX.6 | `[ ] → [~]` | Started repository-backed current-state inventory and completion roadmap |
 | 2026-09-18 22:56 | D12 (new) | `all-cloud horizontal → AWS → GCP → Azure` | Locked provider-sequential delivery order |
 | 2026-09-18 22:56 | FX.6 | `[~] → [x]` | Added complete R0–R6 roadmap with subphases, dependencies, and exit gates |
+| 2026-09-18 23:05 | FX.4 | `[~] → [~]` | Started a repository-backed interactive architecture diagram for the current implementation |
+| 2026-09-18 23:11 | FX.4 | `[~] → [x]` | Delivered the source-linked Cloud Compass architecture diagram with showcase checks passing |
+| 2026-09-19 18:46 | F1.13 | `[ ] → [~]` | Started recording the agreed personal AWS beta scope and architecture decisions |
+| 2026-09-19 18:46 | F1.13 | `[~] → [x]` | Locked D13–D23 in the guide and synchronized roadmap/context documents |
+| 2026-09-19 18:55 | F1.14 | `[ ] → [~]` | Started decomposing the AWS personal beta into verifiable numbered tasks |
+| 2026-09-19 18:55 | F1.14 | `[~] → [x]` | Added the beta execution tracker, dependencies, exit scorecard, and mandatory agent update protocol |
+| 2026-09-19 18:56 | F1.15 | `[ ] → [~]` | Started recording the confirmed AWS beta closure thresholds |
+| 2026-09-19 18:56 | F1.15 | `[~] → [x]` | Locked D24 and marked the beta closure scorecard as confirmed |
+| 2026-09-19 18:57 | D25 (new) | `region undecided → ap-south-1` | Locked the single-region EKS beta platform location |
+| 2026-09-19 18:58 | F1.16 | `[ ] → [~]` | Started recording the confirmed beta retention and Bedrock inference constraints |
+| 2026-09-19 18:58 | F1.16 | `[~] → [x]` | Locked D26–D27 and added enforceable lifecycle and AI data-boundary tasks |
+| 2026-09-19 18:59 | F1.17 | `[ ] → [~]` | Started recording the configurable Bedrock model-selection decision |
+| 2026-09-19 18:59 | F1.17 | `[~] → [x]` | Locked D28: retain evaluated Bedrock options; select only after policy and quality gates |
+| 2026-09-19 19:00 | F1.18 | `[ ] → [~]` | Started recording the provisional beta-domain decision |
+| 2026-09-19 19:00 | F1.18 | `[~] → [x]` | Locked D29: `cc.darshanraul.me` is the planned HTTPS beta base domain |
+| 2026-09-19 19:01 | F1.19 | `[ ] → [~]` | Started recording the beta access model |
+| 2026-09-19 19:01 | F1.19 | `[~] → [x]` | Locked D30: beta users are provisioned by invitation only |
+| 2026-09-19 19:02 | F1.20 | `[ ] → [~]` | Started recording the beta chat-corpus boundary |
+| 2026-09-19 19:02 | F1.20 | `[~] → [x]` | Locked D31: beta chat has no tenant document upload path |
+| 2026-09-19 19:03 | F1.21 | `[ ] → [~]` | Started recording the EKS persistence-topology decision |
+| 2026-09-19 19:03 | F1.21 | `[~] → [x]` | Locked D32: platform state stays self-managed in Kubernetes; RDS excluded |
+| 2026-09-19 19:04 | F1.22 | `[ ] → [~]` | Started recording the self-managed EKS backup/recovery decision |
+| 2026-09-19 19:04 | F1.22 | `[~] → [x]` | Locked D33: Velero/S3 plus native state backups and restore drills |
+| 2026-09-19 19:35 | F1.23 | `[ ] → [~]` | Started the target AWS beta infrastructure diagram and README preview |
+| 2026-09-19 19:35 | F1.23 | `[~] → [x]` | Added the Archify diagram HTML and a reviewed README PNG preview |
 
 > When you (the agent) start a new task, **append a row** here with the timestamp, the `F<n>.<m>` item, the new status, and a one-line summary. When the task completes, append a second row flipping the status to `[x]`.
 
@@ -172,7 +233,7 @@ Multi-tenant, multi-cloud (AWS + Azure + GCP) cloud operations platform: MCP + R
 
 ## 6. Multi-Tenancy Rules (DO NOT VIOLATE)
 
-- `tenant_id` MUST come from verified OIDC identity context — never from request body, query string, or unverified headers. R0.1 must decide a dedicated tenant claim versus server-side membership lookup; `sub` remains the user identifier.
+- Keycloak `sub` identifies the user only. The backend MUST resolve `tenant_id` and role from the server-side membership table after token verification; neither may come from a request body, query string, header, or tool argument.
 - Every Postgres query in `app/`, `mcp-server/`, `rag-service/`, `alerts-service/` MUST include `WHERE tenant_id = %s`.
 - Every Qdrant call MUST target a tenant-prefixed collection (`rag-{tid}`, `kb-{tid}-*`, `cve-{tid}`).
 - Every Vault read for cloud creds MUST be scoped to `secret/tenants/{tenant_id}/providers/...`.
@@ -246,7 +307,7 @@ Browser → Envoy Gateway → Refine + shadcn/ui (8080) + LangGraph agent (SSE)
 
 - `tenant_id` scoped chunking and retrieval.
 - Sources: cloud billing docs (scraped) + tenant-uploaded cost/runbook/SBOM reports + provider hardening guides + CVE corpus.
-- Embedding: Minimax `embo` (384 dim, DOT similarity).
+- Embeddings: selected in-region Bedrock embedding model under D27; collection dimension and migration are versioned with the chosen model.
 - Chunking: 512-char fixed, 50-char overlap.
 - Collections: `rag-{tid}`, `kb-{tid}-security`, `kb-{tid}-compliance`, `cve-{tid}`.
 

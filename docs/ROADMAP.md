@@ -1,8 +1,35 @@
 # Cloud Compass — Current-State Inventory and Delivery Roadmap
 
-> Status date: 2026-09-18  
+> Status date: 2026-09-19
 > Delivery order: **AWS first, then GCP, then Azure**.  
 > This is the execution roadmap. Existing `F1.x`/`F2.x`/`F3.x` tracker IDs remain useful as domain-backlog references, but their original all-cloud-at-once ordering is superseded by the release sequence below.
+
+## Three-month personal AWS beta (locked)
+
+The immediate release is not the full v1 described below. The first user is the project owner, using a personal AWS account as a tenant account. The goal is a reliable read-only AWS operations cockpit that answers: **what changed, what costs more, and what needs attention?** It must be useful weekly before any GCP or Azure production work begins.
+
+| Area | Beta commitment |
+|---|---|
+| Environments | Kind is the reproducible local/CI target; EKS runs only in `ap-south-1` in a dedicated Cloud Compass platform AWS account. The personal AWS account is monitored separately; its resources may be global or in other AWS regions. Public beta access uses the provisional base domain `cc.darshanraul.me` through HTTPS only. |
+| Persistence | Postgres, Qdrant, Vault, Keycloak, and workers are self-managed Kubernetes workloads with persistent storage. Bedrock is the only managed platform AI service; customer EventBridge/SQS are ingestion integrations, not managed platform dependencies. |
+| Backup/recovery | Velero stores Kubernetes metadata and EBS volume snapshots in a dedicated encrypted `ap-south-1` S3 bucket. Native Postgres, Qdrant, and Vault backups also go there; scheduled restore drills prove recovery. S3 is backup-only. |
+| Connections | Both live AWS and clearly-labelled simulated AWS connections. Floci plus deterministic fixtures cover normal, anomaly, authorization, throttling, and partial-failure paths. |
+| Identity | Self-hosted Keycloak. Verified `sub` identifies a user; Postgres `users`, `tenants`, and `memberships` resolve the tenant and role. One active tenant per request. |
+| User access | Invite-only beta. The operator provisions Keycloak users and memberships; public self-signup is disabled. |
+| Onboarding | A Keycloak-authenticated `cloud-compass` CLI generates pinned OpenTofu config, validates it, and supports explicit user-run apply. A GitHub App may create a user-approved PR later; only installation IDs are tenant-scoped. |
+| AWS access | Read-only only. The CLI sends the newly-created least-privilege connector key to tenant Vault once; neither the backend nor CLI retrieves stored AWS secrets or keeps tenant GitHub PATs. |
+| Live reflection | CloudTrail management events and Security Hub findings flow through EventBridge → SQS → an EKS worker using IRSA, DLQ, and idempotent consumers. Daily snapshots reconcile missed events. |
+| Cost | Cost Explorer history and anomaly inputs are daily, persisted data. Billing is never represented as real-time. |
+| Inventory | EC2, EBS, S3, RDS, Lambda, load balancers, ECR, VPC/subnets/security groups/route tables, CloudTrail config, and Route 53 zones/records. ECS/EKS discovery is deferred. |
+| Security | Security Hub where enabled, supplemented by read-only checks for public S3, permissive security groups, and CloudTrail health. |
+| Data lifecycle | 13 months normalized cost/inventory/finding history; 30 days raw event payloads; tenant-admin deletion requests complete within 30 days. All beta data remains in `ap-south-1`. |
+| AI | Bedrock only in `ap-south-1`, using configurable allowlisted in-region chat/embedding candidates with zero retention, no cross-region inference, and no invocation-content logging. The lowest-cost pair that passes the policy and grounded-answer evaluation is selected. Application prompts are minimized/redacted; tenant content is never used for Cloud Compass model training. |
+| Chat corpus | No tenant document uploads in beta. Chat uses only tenant-scoped live/simulated AWS tool results and curated Cloud Compass runbook text. |
+| Explicitly deferred | SCA, formal compliance/evidence, advanced FinOps recommendations/commitments, Slack automation, GCP, Azure, write remediation, full ECS/EKS discovery, and packet/log analytics. |
+
+The beta exit gate is: the owner can log in to EKS, connect the personal account safely, see simulated and live data without ambiguity, observe an AWS change within minutes, review daily cost movement and Security Hub/direct findings, and receive cited answers from read-only chat. Closure additionally requires the locked scorecard: three active tenants, each onboarded in under 30 minutes; at least two users returning weekly for three consecutive weeks; and one actionable signal per user. The longer R0–R6 plan remains the post-beta path.
+
+The executable, task-level tracker for this beta is [`BETA_EXECUTION_PLAN.md`](BETA_EXECUTION_PLAN.md). Agents must update its task status and evidence at the same time as the invocation tracker in `AGENTS.md`; the R0–R6 sections below remain the long-term dependency and scope reference.
 
 ## 1. What “complete” means
 
@@ -168,9 +195,9 @@ No row is currently complete end to end because identity, authorization, API con
 | Release | Goal | Depends on | Completion gate |
 |---|---|---|---|
 | R0 | Make the platform foundation coherent and secure | Current repository | Two-tenant Kind deployment passes build, auth, isolation, migration, and health smoke tests |
-| R1 | AWS Foundation | R0 | AWS cost, inventory, persisted snapshots, and grounded chat work end to end |
-| R2 | AWS Security + FinOps | R1 | AWS posture and optimization workflows work in UI and chat |
-| R3 | AWS Operations Suite | R2 | AWS SCA, compliance, evidence, anomalies, and Slack alerts work; AWS beta exit |
+| R1 | AWS personal-beta foundation | R0 | Live/simulated onboarding, daily cost, event-driven inventory, and grounded chat work end to end on Kind and EKS |
+| R2 | AWS security + weekly cockpit | R1 | Security Hub/direct checks, real-time change feed, weekly digest, and cited chat work in UI; personal AWS beta exit |
+| R3 | Post-beta AWS Operations Suite | R2 | AWS SCA, compliance, evidence, anomalies, and Slack alerts work |
 | R4 | GCP parity | R3 | All v1 domains meet the same provider contract and acceptance suite on GCP |
 | R5 | Azure parity | R4 | All v1 domains meet the same provider contract and acceptance suite on Azure |
 | R6 | Multi-cloud GA | R5 | Cross-cloud UX, scale, recovery, security, observability, and release acceptance pass |
@@ -184,8 +211,8 @@ No row is currently complete end to end because identity, authorization, API con
 Deliverables:
 
 - Define `UserIdentity`, `TenantContext`, `Role`, and `ProviderConnection` models.
-- Decide whether the verified token carries a dedicated tenant claim or whether membership is resolved server-side from `sub`. Do not use `sub` as both user and tenant identifier.
-- Keep v1 tenant switching out of scope unless explicitly required; support one active tenant per request.
+- Implement the locked identity model: Keycloak `sub` identifies a user; server-side membership lookup resolves tenant and role. Do not use `sub` as tenant ID.
+- Keep tenant switching out of scope for the beta; support one active tenant per request.
 - Define a versioned HTTP adapter for browser requests and a separate internal MCP transport boundary.
 - Define normalized schemas for money, time ranges, resources, findings, recommendations, vulnerabilities, controls, evidence, and alerts.
 - Publish error, pagination, filtering, sorting, citation, and partial-provider-failure conventions.
@@ -267,7 +294,7 @@ Exit gate:
 Deliverables:
 
 - Support many AWS accounts per tenant with connection status, account alias/ID, default region, enabled regions, and last validation time.
-- Implement static access keys through Vault for v1, with minimal IAM policy documentation and credential validation.
+- Deliver the `cloud-compass` CLI/OpenTofu onboarding path: authenticated tenant setup session, generated pinned configuration, explicit user-run apply, least-privilege read-only connector key sent once to tenant Vault, and credential validation. A GitHub App integration stores installation IDs only and can create an explicitly approved PR after the local path works.
 - Preserve an upgrade path to cross-account role assumption without changing domain contracts.
 - Add admin-only connection status to Settings; never return secret material to the browser.
 
@@ -296,7 +323,7 @@ Deliverables:
 - Implement `cost.get_costs` with service/account/region/tag filters, daily/monthly granularity, currency/unit normalization, and explicit inclusive/exclusive dates.
 - Implement `cost.get_forecast` with documented AWS limitations.
 - Add daily idempotent cost snapshot job, ingestion run tracking, backfill, and reconciliation.
-- Return real-time results on demand and persisted trends for dashboards.
+- Return on-demand Cost Explorer results only with AWS freshness caveats and use persisted daily trends for dashboards; do not claim real-time billing.
 
 Exit gate:
 
@@ -308,9 +335,9 @@ Exit gate:
 Deliverables:
 
 - Implement `inventory.list_resources`, `inventory.get_tag_coverage`, and `inventory.get_unused_resources`.
-- Cover the initial AWS set: EC2, EBS, S3, RDS, Lambda, ELB/ALB/NLB, ECS/EKS, and ECR.
+- Cover the initial AWS set: EC2, EBS, S3, RDS, Lambda, ELB/ALB/NLB, ECR, VPC/subnets/security groups/route tables, CloudTrail configuration, and Route 53 zones/records. Defer ECS/EKS discovery.
 - Normalize ARN/resource ID, name, service, type, account, region, tags, lifecycle state, first seen, and last seen.
-- Add scheduled snapshots, current-state reconciliation, tombstoning, and on-demand refresh.
+- Add scheduled snapshots, current-state reconciliation, tombstoning, and on-demand refresh. Add an EventBridge → SQS → EKS-worker path for CloudTrail management events, with IRSA, DLQ, idempotency, per-tenant routing, and observable lag.
 
 Exit gate:
 
@@ -350,7 +377,8 @@ Exit gate:
 #### R1.7 — AWS Foundation release gate
 
 - Two tenants, each with at least two mocked or sandbox AWS accounts, pass the isolation suite.
-- Login → Costs → Inventory → Chat works on Kind from a clean deployment.
+- Login → live/simulated Connections → Costs → Inventory → Chat works on Kind from a clean deployment and in the dedicated EKS platform account.
+- A CloudTrail fixture or live management event reaches the UI within a documented latency; duplicate and dead-letter behavior is tested.
 - Snapshot jobs are observable and idempotent.
 - Architecture, security, and runbooks describe implemented behavior only.
 
@@ -362,6 +390,7 @@ Deliverables:
 
 - Add findings, assets, IAM principals/relationships, exposure, encryption status, status history, and deduplication models.
 - Ingest Security Hub where enabled and provide direct read-only checks for required gaps.
+- For the beta, direct checks are public S3, permissive security groups, and CloudTrail health; disabled Security Hub is reported as incomplete coverage, never clean posture.
 - Normalize severity, control ID, resource linkage, first/last seen, workflow state, evidence, and provider source.
 - Implement `security.list_findings`, `security.get_iam_anomalies`, `security.get_public_assets`, and `security.get_encryption_status`.
 
@@ -389,10 +418,12 @@ Deliverables:
 - Build production Security and FinOps pages with filters, details, severity/status views, freshness, and export.
 - Create tenant-scoped security KB ingestion/retrieval and seed licensed/redistributable AWS hardening content.
 - Make the agent answer exposure, remediation, rightsizing, and reservation questions with cloud-data and KB citations.
+- Build a weekly digest from the daily cost history, EventBridge-fed inventory changes, and security findings. It is viewable in-app for the beta; external delivery automation is deferred.
 
 Exit gate:
 
 - “What public S3 buckets do I have?” and “How should I fix them?” produce distinct inventory/finding evidence and KB-backed remediation.
+- The owner can review one in-app weekly digest that distinguishes live from simulated data and links every claim to source evidence.
 
 #### R2.4 — AWS Security/FinOps release gate
 
@@ -673,14 +704,14 @@ A subphase is complete only when all applicable items are true:
 
 ## 9. Immediate implementation queue
 
-The next work should be taken in this order:
+The numbered beta work breakdown in [`BETA_EXECUTION_PLAN.md`](BETA_EXECUTION_PLAN.md) is the authoritative near-term queue. The next work should be taken in this order:
 
-1. R0.1: decide user-versus-tenant identity and browser API/MCP boundary.
+1. R0.1: implement the locked user-versus-tenant identity model and browser API/MCP boundary.
 2. R0.2: make the frontend and Python services reproducibly build and test.
 3. R0.3: implement shared JWT verification and remove trusted tenant headers/tool arguments.
 4. R0.4: replace the current schema with ordered core migrations.
 5. R0.5: establish working Vault rendering and a clean Kind smoke test.
-6. R1.1–R1.2: implement AWS account onboarding and the provider abstraction.
-7. R1.3–R1.7: complete the AWS Foundation vertical release.
+6. R1.1–R1.2: implement OpenTofu/CLI AWS onboarding, live/simulated connections, and the provider abstraction.
+7. R1.3–R1.7: complete the AWS personal-beta vertical release, including EventBridge/SQS change ingestion.
 
-Do not add more placeholder domain pages or begin GCP/Azure provider code before these gates. The current highest-value milestone is a secure, reproducible AWS cost-and-inventory slice running end to end.
+Do not add more placeholder domain pages, advanced FinOps, SCA, compliance, Slack automation, or GCP/Azure provider code before these gates. The current highest-value milestone is a secure, reproducible, event-aware AWS personal-beta cockpit running end to end.
